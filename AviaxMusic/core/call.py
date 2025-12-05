@@ -1,73 +1,84 @@
-async def change_stream(self, client, chat_id):
-    check = db.get(chat_id)
-    popped = None
-    loop = await get_loop(chat_id)
+import asyncio
+import importlib
+
+from pyrogram import idle
+from pytgcalls.exceptions import NoActiveGroupCall
+
+import config
+from AviaxMusic import LOGGER, app, userbot
+from AviaxMusic.core.call import Call  # <-- Aviax ko Call se replace kiya
+from AviaxMusic.misc import sudo
+from AviaxMusic.plugins import ALL_MODULES
+from AviaxMusic.utils.database import get_banned_users, get_gbanned
+from config import BANNED_USERS
+
+
+async def init():
+    # Check if any assistant client is defined
+    if (
+        not config.STRING1
+        and not config.STRING2
+        and not config.STRING3
+        and not config.STRING4
+        and not config.STRING5
+    ):
+        LOGGER(__name__).error("Assistant client variables not defined, exiting...")
+        exit()
+
+    await sudo()
+
+    # Load banned users
     try:
-        if loop == 0:
-            popped = check.pop(0)
-        else:
-            loop = loop - 1
-            await set_loop(chat_id, loop)
-        await auto_clean(popped)
-        if not check:
-            await _clear_(chat_id)
-            return await client.leave_group_call(chat_id)
+        users = await get_gbanned()
+        for user_id in users:
+            BANNED_USERS.add(user_id)
+        users = await get_banned_users()
+        for user_id in users:
+            BANNED_USERS.add(user_id)
     except:
-        try:
-            await _clear_(chat_id)
-            return await client.leave_group_call(chat_id)
-        except:
-            return
-    else:
-        queued = check[0]["file"]
-        language = await get_lang(chat_id)
-        _ = get_string(language)
-        title = (check[0]["title"]).title()
-        user = check[0]["by"]
-        original_chat_id = check[0]["chat_id"]
-        streamtype = check[0]["streamtype"]
-        videoid = check[0]["vidid"]
-        db[chat_id][0]["played"] = 0
-        exis = (check[0]).get("old_dur")
-        if exis:
-            db[chat_id][0]["dur"] = exis
-            db[chat_id][0]["seconds"] = check[0]["old_second"]
-            db[chat_id][0]["speed_path"] = None
-            db[chat_id][0]["speed"] = 1.0
-        video = True if str(streamtype) == "video" else False
+        pass
 
-        # Thumbnail ko ignore kar diya, sirf default image use hoga
-        default_img = config.STREAM_IMG_URL
-        button = stream_markup(_, chat_id)
+    # Start main app
+    await app.start()
 
-        if "live_" in queued or "vid_" in queued or "index_" in queued:
-            stream = AudioVideoPiped(queued, audio_parameters=HighQualityAudio(),
-                                     video_parameters=MediumQualityVideo()) if video else AudioPiped(queued, audio_parameters=HighQualityAudio())
-            try:
-                await client.change_stream(chat_id, stream)
-            except:
-                return await app.send_message(original_chat_id, text=_["call_6"])
-            
-            run = await app.send_photo(chat_id=original_chat_id, photo=default_img,
-                                       caption=_["stream_1"].format(
-                                           f"https://t.me/{app.username}?start=info_{videoid}",
-                                           title[:23], check[0]["dur"], user),
-                                       reply_markup=InlineKeyboardMarkup(button))
-            db[chat_id][0]["mystic"] = run
-            db[chat_id][0]["markup"] = "tg"
-        else:
-            # fallback for other queued types
-            stream = AudioVideoPiped(queued, audio_parameters=HighQualityAudio(),
-                                     video_parameters=MediumQualityVideo()) if video else AudioPiped(queued, audio_parameters=HighQualityAudio())
-            try:
-                await client.change_stream(chat_id, stream)
-            except:
-                return await app.send_message(original_chat_id, text=_["call_6"])
-            
-            run = await app.send_photo(chat_id=original_chat_id, photo=default_img,
-                                       caption=_["stream_1"].format(
-                                           f"https://t.me/{app.username}?start=info_{videoid}",
-                                           title[:23], check[0]["dur"], user),
-                                       reply_markup=InlineKeyboardMarkup(button))
-            db[chat_id][0]["mystic"] = run
-            db[chat_id][0]["markup"] = "tg"
+    # Import all modules
+    for all_module in ALL_MODULES:
+        importlib.import_module("AviaxMusic.plugins" + all_module)
+    LOGGER("AviaxMusic.plugins").info("Successfully Imported Modules...")
+
+    # Start userbot
+    await userbot.start()
+
+    # Create Call instance
+    aviax = Call()
+    await aviax.start()
+
+    # Try to join log group videochat
+    try:
+        await aviax.stream_call("https://te.legra.ph/file/29f784eb49d230ab62e9e.mp4")
+    except NoActiveGroupCall:
+        LOGGER("AviaxMusic").error(
+            "Please turn on the videochat of your log group\\channel.\n\nStopping Bot..."
+        )
+        exit()
+    except:
+        pass
+
+    # Run decorators
+    await aviax.decorators()
+
+    LOGGER("AviaxMusic").info(
+        "Aviax Music Started Successfully.\n\nDon't forget to visit @AviaxOfficial"
+    )
+
+    # Idle to keep the bot running
+    await idle()
+
+    # Stop everything on exit
+    await app.stop()
+    await userbot.stop()
+    LOGGER("AviaxMusic").info("Stopping Aviax Music Bot...")
+
+
+if __name__ == "__main__":
+    asyncio.get_event_loop().run_until_complete(init())
